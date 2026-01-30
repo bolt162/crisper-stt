@@ -15,6 +15,13 @@ A lightweight macOS app for instant voice-to-text transcription using Groq's Whi
 - **System Audio Support** - Optionally capture system audio along with microphone
 - **Configurable Hotkey** - Choose from Right/Left Option, Control, Shift, Command, Space, and more
 
+## Screenshot & Demo
+
+<img width="493" height="528" alt="Screenshot 2026-01-30 at 11 59 04 AM" src="https://github.com/user-attachments/assets/79089666-51c6-4dfb-82e3-7ae8404b066f" />
+
+
+Demo link : ![Click here](https://drive.google.com/file/d/1jWz14aWJaCT9kiqyaLNrnStnCm9RfdET/view?usp=drive_link)
+
 ## Installation
 
 ### Prerequisites
@@ -165,10 +172,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 3. Commit your changes (`git commit -m 'Add some amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
