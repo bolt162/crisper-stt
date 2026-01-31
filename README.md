@@ -26,7 +26,7 @@ Demo link : [Click here](https://drive.google.com/file/d/1jWz14aWJaCT9kiqyaLNrnS
 
 ### Download (Recommended)
 
-Download the latest release from the [Releases page](https://github.com/bolt162/crisper/releases/latest).
+Download the latest release from the [Releases page](https://github.com/bolt162/crisper-stt/releases/tag/v1.0.0).
 
 1. Download `Crisper-1.0.0-arm64.dmg`
 2. Open the DMG and drag Crisper to your Applications folder
