@@ -1,8 +1,32 @@
 const container = document.getElementById("container");
 const floatingBtn = document.getElementById("floatingBtn");
 const settingsBtn = document.getElementById("settingsBtn");
+const snackbar = document.getElementById("snackbar");
 
 let isRecording = false;
+let snackbarTimeout = null;
+
+// Show snackbar with message and type (success/error)
+function showSnackbar(message, type = "success") {
+  // Clear any existing timeout
+  if (snackbarTimeout) {
+    clearTimeout(snackbarTimeout);
+  }
+
+  // Set content and type
+  snackbar.textContent = message;
+  snackbar.className = "snackbar " + type;
+
+  // Show snackbar
+  requestAnimationFrame(() => {
+    snackbar.classList.add("visible");
+  });
+
+  // Auto-hide after 2.5 seconds
+  snackbarTimeout = setTimeout(() => {
+    snackbar.classList.remove("visible");
+  }, 2500);
+}
 let mediaRecorder = null;
 let audioChunks = [];
 let audioContext = null;
@@ -40,7 +64,16 @@ window.floatingAPI.onTranscriptionStatus((status) => {
     floatingBtn.classList.add("transcribing");
   } else {
     floatingBtn.classList.remove("transcribing");
+    // Show error snackbar if there's an error
+    if (status.status === "error" && status.error) {
+      showSnackbar(status.error, "error");
+    }
   }
+});
+
+// Listen for transcription results (success)
+window.floatingAPI.onTranscriptionResult?.((_result) => {
+  showSnackbar("Copied to clipboard", "success");
 });
 
 // Helper to log to terminal via main process

@@ -15,9 +15,121 @@ const https = require("https");
 const { execSync } = require("child_process");
 const FormData = require("form-data");
 const { uIOhook, UiohookKey } = require("uiohook-napi");
-
 // Suppress ALL error dialogs
-dialog.showErrorBox = () => {};
+
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Flags to prevent repeated prompts and track hook state
+let accessibilityDialogShown = false;
+let hooksStarted = false;
+
+// Check only (no prompting)
+function hasAccessibility() {
+  try {
+    return systemPreferences.isTrustedAccessibilityClient(false);
+  } catch (e) {
+    console.error('isTrustedAccessibilityClient error', e);
+    return false;
+  }
+}
+
+// Open settings and poll for change.
+// Returns true if permission is granted at any point, false otherwise.
+async function promptAndWaitForAccessibility({ pollInterval = 1000, timeout = 30000 } = {}) {
+  // Only open the settings pane - don't call isTrustedAccessibilityClient(true)
+  // as that triggers the system TCC prompt dialog
+  shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility');
+
+  const start = Date.now();
+
+  // Quick immediate check
+  if (hasAccessibility()) {
+    console.log('Accessibility already granted.');
+    return true;
+  }
+
+  // Give user a short loop to toggle the permission while the app waits
+  while (Date.now() - start < timeout) {
+    await sleep(pollInterval);
+    if (hasAccessibility()) {
+      console.log('Accessibility granted during wait.');
+      return true;
+    }
+  }
+
+  console.log('Accessibility not granted after polling.');
+  return false;
+}
+
+// High-level flow to ensure accessibility before starting uIOhook:
+// Shows dialog at most ONCE per launch, does not force quit.
+async function ensureAccessibilityAndStart() {
+  if (hooksStarted) return true;
+
+  if (hasAccessibility()) {
+    console.log('Accessibility already present — starting hooks.');
+    registerPushToTalk();
+    hooksStarted = true;
+    return true;
+  }
+
+  // Only show the dialog once per launch to avoid spamming
+  if (accessibilityDialogShown) {
+    console.log('Accessibility dialog already shown this session, skipping.');
+    return false;
+  }
+  accessibilityDialogShown = true;
+
+  // Prompt the user nicely
+  const result = await dialog.showMessageBox({
+    type: 'info',
+    title: 'Accessibility Permission Required',
+    message:
+      'Crisper needs Accessibility permission to detect your global hotkey and auto-paste.\n\n' +
+      'Click "Open Settings" to enable it. You may need to relaunch the app after enabling.',
+    buttons: ['Open Settings', 'Continue Without Hotkeys'],
+    defaultId: 0,
+    cancelId: 1,
+  });
+
+  if (result.response === 0) {
+    // User chose Open Settings. Open settings and wait/poll briefly.
+    const grantedDuringWait = await promptAndWaitForAccessibility({ pollInterval: 1000, timeout: 20000 });
+
+    if (grantedDuringWait) {
+      // Start hooks now that permission is present
+      registerPushToTalk();
+      hooksStarted = true;
+      return true;
+    }
+
+    // Don't quit - notify renderer to show a non-modal banner instead
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('accessibility-relaunch-needed');
+    }
+    return false;
+  } else {
+    // User chose to continue without hotkeys
+    console.log('User chose to continue without accessibility/hotkeys');
+    return false;
+  }
+}
+
+// Background poller to start hooks if permission is granted later (e.g., after user enables in System Settings)
+function startAccessibilityPoller() {
+  setInterval(() => {
+    if (!hooksStarted && hasAccessibility()) {
+      console.log('Accessibility granted (detected by poller) — starting hooks.');
+      registerPushToTalk();
+      hooksStarted = true;
+      // Notify renderer that hotkeys are now active
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('accessibility-granted');
+      }
+    }
+  }, 2000);
+}
 
 // Catch uncaught exceptions silently
 process.on("uncaughtException", () => {});
@@ -32,15 +144,17 @@ let currentPttKey = "AltRight"; // Default PTT key
 const configPath = path.join(app.getPath("userData"), "config.json");
 
 // Map of key codes from browser to uiohook
+// Note: uiohook uses "Alt", "Ctrl", "Shift", "Meta" for LEFT-side keys
+// and "AltRight", "CtrlRight", "ShiftRight", "MetaRight" for RIGHT-side keys
 const keyCodeMap = {
   "AltRight": UiohookKey.AltRight,
-  "AltLeft": UiohookKey.AltLeft,
+  "AltLeft": UiohookKey.Alt,           // Left Alt = Alt (56)
   "ControlRight": UiohookKey.CtrlRight,
-  "ControlLeft": UiohookKey.CtrlLeft,
+  "ControlLeft": UiohookKey.Ctrl,      // Left Ctrl = Ctrl (29)
   "ShiftRight": UiohookKey.ShiftRight,
-  "ShiftLeft": UiohookKey.ShiftLeft,
+  "ShiftLeft": UiohookKey.Shift,       // Left Shift = Shift (42)
   "MetaRight": UiohookKey.MetaRight,
-  "MetaLeft": UiohookKey.MetaLeft,
+  "MetaLeft": UiohookKey.Meta,         // Left Meta/Command = Meta (3675)
   "Space": UiohookKey.Space,
   "CapsLock": UiohookKey.CapsLock,
   "Tab": UiohookKey.Tab,
@@ -109,8 +223,8 @@ function setPttKey(keyCode) {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 500,
-    height: 500,
+    width: 540,
+    height: 560,
     resizable: false,
     titleBarStyle: "hiddenInset",
     webPreferences: {
@@ -133,10 +247,10 @@ function createFloatingButton() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
   floatingButton = new BrowserWindow({
-    width: 100,
-    height: 100,
-    x: Math.round(width / 2 - 50),
-    y: height - 120,
+    width: 200,
+    height: 140,
+    x: Math.round(width / 2 - 100),
+    y: height - 160,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
@@ -164,38 +278,28 @@ function createFloatingButton() {
   });
 }
 
-// Check accessibility permission using AppleScript (more reliable real-time check)
 function checkAccessibilityPermission() {
-  try {
-    // Try to perform a simple accessibility action
-    // If it succeeds without error, we have permission
-    execSync(
-      `osascript -e 'tell application "System Events" to return name of first process'`,
-      { timeout: 2000, stdio: 'pipe' }
-    );
-    return true;
-  } catch (error) {
-    // If it fails, check if it's a permission error or something else
-    // Also fall back to Electron's check
-    return systemPreferences.isTrustedAccessibilityClient(false);
-  }
+  // Pure check; does NOT prompt
+  return systemPreferences.isTrustedAccessibilityClient(false);
 }
 
-// Check screen recording permission by actually testing it
-async function checkScreenRecordingPermission() {
+
+// Check screen recording permission using direct TCC query
+// Note: On macOS, system audio capture requires Screen Recording permission
+function checkScreenRecordingPermission() {
   try {
-    // Try to get sources - this will fail or return empty if permission not granted
-    const sources = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: 1, height: 1 } });
-    return sources && sources.length > 0;
+    const status = systemPreferences.getMediaAccessStatus("screen");
+    return status === "granted";
   } catch (e) {
+    console.error('getMediaAccessStatus("screen") error:', e);
     return false;
   }
 }
 
 // Get current permission status without prompting
-async function getPermissionStatus() {
+function getPermissionStatus() {
   const micStatus = systemPreferences.getMediaAccessStatus("microphone");
-  const screenGranted = await checkScreenRecordingPermission();
+  const screenGranted = checkScreenRecordingPermission();
   const accessibilityEnabled = checkAccessibilityPermission();
 
   return {
@@ -226,6 +330,13 @@ async function requestMicrophonePermission() {
 
   // This will trigger the system permission dialog (only works if "not-determined")
   const granted = await systemPreferences.askForMediaAccess("microphone");
+
+  // Restore window focus after dialog dismisses (macOS can lose focus after permission dialogs)
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+  }
+
   return { granted, status: granted ? "granted" : "denied" };
 }
 
@@ -237,12 +348,9 @@ function openScreenRecordingSettings() {
 }
 
 // Open accessibility settings in System Preferences
+// NOTE: We do NOT call isTrustedAccessibilityClient(true) here to avoid repeated TCC prompts.
 function openAccessibilitySettings() {
-  // This opens System Preferences to the Accessibility pane
-  // The 'true' parameter will prompt user if not already trusted
-  systemPreferences.isTrustedAccessibilityClient(true);
-
-  // Also open the System Preferences directly
+  // Only open System Preferences directly - don't call isTrustedAccessibilityClient(true)
   shell.openExternal(
     "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
   );
@@ -516,13 +624,14 @@ ipcMain.handle("transcribe", async (_event, audioData) => {
   } catch (error) {
     console.error("Transcription error:", error);
     safeSend(mainWindow, "transcription-status", { status: "error", error: error.message });
+    safeSend(floatingButton, "transcription-status", { status: "error", error: error.message });
     return { success: false, error: error.message };
   }
 });
 
 // Permission handlers
-ipcMain.handle("get-permission-status", async () => {
-  return await getPermissionStatus();
+ipcMain.handle("get-permission-status", () => {
+  return getPermissionStatus();
 });
 
 ipcMain.handle("request-microphone-permission", async () => {
@@ -606,13 +715,20 @@ ipcMain.handle("get-desktop-sources", async () => {
 });
 
 // App lifecycle
-app.whenReady().then(() => {
+app.whenReady().then(async() => {
   // Load config (API key and PTT key) before creating windows
   loadConfig();
 
   createWindow();
   createFloatingButton();
-  registerPushToTalk();
+  app.commandLine.appendSwitch('disable-restore-session-state');
+
+  // Ensure accessibility before starting uiohook
+  await ensureAccessibilityAndStart();
+
+  // Start background poller to detect if permission is granted later
+  // (e.g., user enables it in System Settings without relaunching)
+  startAccessibilityPoller();
 
   app.on("activate", () => {
     if (mainWindow) {

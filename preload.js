@@ -42,4 +42,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onTranscriptionResult: (callback) => {
     ipcRenderer.on("transcription-result", (_event, result) => callback(result));
   },
+
+  // Accessibility permission events
+  onAccessibilityRelaunchNeeded: (callback) => {
+    ipcRenderer.on("accessibility-relaunch-needed", () => callback());
+  },
+  onAccessibilityGranted: (callback) => {
+    ipcRenderer.on("accessibility-granted", () => callback());
+  },
+
+  // Quit app
+  quitApp: () => ipcRenderer.invoke("quit-app"),
 });

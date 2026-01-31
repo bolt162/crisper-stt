@@ -121,13 +121,42 @@ function setupSidebar() {
     homeBtn.classList.add("active");
     settingsBtn.classList.remove("active");
     settingsPanel.classList.remove("active");
+    // Restore the current screen visibility when returning from settings
+    restoreCurrentScreen();
   });
 
   settingsBtn.addEventListener("click", () => {
     settingsBtn.classList.add("active");
     homeBtn.classList.remove("active");
     settingsPanel.classList.add("active");
+    // Hide all screens when settings is open to avoid overlap
+    hideAllScreens();
   });
+}
+
+// Hide all screens (used when settings panel is open)
+function hideAllScreens() {
+  apiKeyScreen.classList.remove("active");
+  microphoneScreen.classList.remove("active");
+  screenRecordingScreen.classList.remove("active");
+  accessibilityScreen.classList.remove("active");
+  mainScreen.classList.remove("active");
+}
+
+// Restore the current screen based on currentScreen state
+function restoreCurrentScreen() {
+  hideAllScreens();
+  if (currentScreen === "apiKey") {
+    apiKeyScreen.classList.add("active");
+  } else if (currentScreen === "microphone") {
+    microphoneScreen.classList.add("active");
+  } else if (currentScreen === "screenRecording") {
+    screenRecordingScreen.classList.add("active");
+  } else if (currentScreen === "accessibility") {
+    accessibilityScreen.classList.add("active");
+  } else if (currentScreen === "main") {
+    mainScreen.classList.add("active");
+  }
 }
 
 // Set up settings panel functionality
@@ -537,7 +566,6 @@ function setupIPCListeners() {
 
   // Recording state changes (from global hotkey)
   // Main window no longer handles hotkey recording - floating button does
-  // Just update the UI state to reflect what's happening
   window.electronAPI.onRecordingState((state) => {
     if (currentScreen !== "main") return;
 
@@ -564,6 +592,15 @@ function setupIPCListeners() {
   window.electronAPI.onTranscriptionResult((result) => {
     setStatus("Copied to clipboard!", "success");
     showTranscription(result.text);
+  });
+
+  // Accessibility permission events
+  window.electronAPI.onAccessibilityRelaunchNeeded?.(() => {
+    showRelaunchBanner();
+  });
+
+  window.electronAPI.onAccessibilityGranted?.(() => {
+    hideRelaunchBanner();
   });
 }
 
@@ -607,6 +644,69 @@ function showTranscription(text) {
   setTimeout(() => {
     transcriptionResult.classList.remove("visible");
   }, 5000);
+}
+
+// Show a non-modal banner when accessibility permission requires relaunch
+function showRelaunchBanner() {
+  let banner = document.getElementById('relaunchBanner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'relaunchBanner';
+    banner.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(135deg, #f39c12, #e67e22);
+      color: #000;
+      padding: 12px 20px;
+      text-align: center;
+      z-index: 9999;
+      font-size: 13px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    `;
+    banner.innerHTML = `
+      <span>Accessibility permission enabled? <strong>Relaunch the app</strong> for hotkeys to work.</span>
+      <button id="relaunchQuitBtn" style="
+        margin-left: 15px;
+        padding: 6px 16px;
+        background: #000;
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+      ">Quit & Relaunch</button>
+      <button id="relaunchDismissBtn" style="
+        margin-left: 8px;
+        padding: 6px 12px;
+        background: transparent;
+        color: #000;
+        border: 1px solid #000;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+      ">Dismiss</button>
+    `;
+    document.body.prepend(banner);
+
+    // Add event listeners
+    document.getElementById('relaunchQuitBtn').addEventListener('click', () => {
+      window.electronAPI.quitApp();
+    });
+    document.getElementById('relaunchDismissBtn').addEventListener('click', () => {
+      hideRelaunchBanner();
+    });
+  }
+  banner.style.display = 'block';
+}
+
+// Hide the relaunch banner
+function hideRelaunchBanner() {
+  const banner = document.getElementById('relaunchBanner');
+  if (banner) {
+    banner.style.display = 'none';
+  }
 }
 
 // Initialize when DOM is ready

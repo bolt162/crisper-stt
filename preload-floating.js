@@ -32,4 +32,8 @@ contextBridge.exposeInMainWorld("floatingAPI", {
   onTranscriptionStatus: (callback) => {
     ipcRenderer.on("transcription-status", (_event, status) => callback(status));
   },
+
+  onTranscriptionResult: (callback) => {
+    ipcRenderer.on("transcription-result", (_event, result) => callback(result));
+  },
 });
