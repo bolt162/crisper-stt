@@ -24,13 +24,22 @@ Demo link : ![Click here](https://drive.google.com/file/d/1jWz14aWJaCT9kiqyaLNrn
 
 ## Installation
 
+### Download (Recommended)
+
+Download the latest release from the [Releases page](https://github.com/bolt162/crisper/releases/latest).
+
+1. Download `Crisper-1.0.0-arm64.dmg`
+2. Open the DMG and drag Crisper to your Applications folder
+3. On first launch, right-click the app and select "Open" to bypass Gatekeeper (since the app is ad-hoc signed)
+
 ### Prerequisites
 
 - macOS 11.0 or later
-- [Node.js](https://nodejs.org/) 18.0 or later
 - A free [Groq API key](https://console.groq.com/keys)
 
-### From Source
+### From Source (Development)
+
+Requires [Node.js](https://nodejs.org/) 18.0 or later.
 
 ```bash
 # Clone the repository
