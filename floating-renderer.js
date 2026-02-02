@@ -33,18 +33,67 @@ let audioContext = null;
 let micStream = null;
 let systemStream = null;
 
-// Settings button - open main window
-settingsBtn.addEventListener("click", () => {
-  window.floatingAPI.showMainWindow();
+// Custom drag handling for buttons
+// This allows dragging the window by any button while preserving click functionality
+let isDragging = false;
+let dragStartX = 0;
+let dragStartY = 0;
+let hasMoved = false;
+let activeButton = null;
+const DRAG_THRESHOLD = 5; // pixels of movement before considered a drag
+
+function setupDraggableButton(button, onClick) {
+  button.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    isDragging = true;
+    hasMoved = false;
+    activeButton = button;
+    dragStartX = e.screenX;
+    dragStartY = e.screenY;
+    e.preventDefault();
+  });
+
+  button._onClick = onClick;
+}
+
+document.addEventListener("mousemove", (e) => {
+  if (!isDragging) return;
+
+  const deltaX = e.screenX - dragStartX;
+  const deltaY = e.screenY - dragStartY;
+
+  if (!hasMoved && (Math.abs(deltaX) > DRAG_THRESHOLD || Math.abs(deltaY) > DRAG_THRESHOLD)) {
+    hasMoved = true;
+  }
+
+  if (hasMoved) {
+    window.floatingAPI.moveWindow(deltaX, deltaY);
+    dragStartX = e.screenX;
+    dragStartY = e.screenY;
+  }
 });
 
-// Handle clicks on record button
-floatingBtn.addEventListener("click", () => {
+document.addEventListener("mouseup", (e) => {
+  if (!isDragging) return;
+  isDragging = false;
+
+  if (!hasMoved && e.button === 0 && activeButton?._onClick) {
+    activeButton._onClick();
+  }
+  activeButton = null;
+});
+
+// Setup draggable buttons with their click handlers
+setupDraggableButton(floatingBtn, () => {
   if (isRecording) {
     stopRecording();
   } else {
     startRecording();
   }
+});
+
+setupDraggableButton(settingsBtn, () => {
+  window.floatingAPI.showMainWindow();
 });
 
 // Listen for recording state changes from main process (via hotkey or main window)
@@ -179,9 +228,25 @@ async function startRecording() {
 
     log("Has system audio:", hasSystemAudio);
 
-    mediaRecorder = new MediaRecorder(combinedStream, {
-      mimeType: "audio/webm;codecs=opus",
-    });
+    // Check supported MIME types and pick the best one for Groq/Whisper compatibility
+    const preferredTypes = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "audio/ogg;codecs=opus",
+      "audio/mp4",
+    ];
+    let selectedMimeType = null;
+    for (const type of preferredTypes) {
+      if (MediaRecorder.isTypeSupported(type)) {
+        selectedMimeType = type;
+        break;
+      }
+    }
+    log("Selected MIME type:", selectedMimeType || "browser default");
+
+    const recorderOptions = selectedMimeType ? { mimeType: selectedMimeType } : {};
+    mediaRecorder = new MediaRecorder(combinedStream, recorderOptions);
+    log("MediaRecorder actual MIME type:", mediaRecorder.mimeType);
     audioChunks = [];
 
     mediaRecorder.ondataavailable = (event) => {
@@ -208,8 +273,19 @@ async function startRecording() {
       // Show transcribing state
       floatingBtn.classList.add("transcribing");
 
+      const MIN_AUDIO_SIZE = 4096; // 4KB minimum to ensure valid audio data
+
       if (audioChunks.length > 0) {
-        const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+        const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+        log("Audio blob size:", audioBlob.size, "bytes, type:", audioBlob.type);
+
+        if (audioBlob.size < MIN_AUDIO_SIZE) {
+          log("WARNING: Recording too short, skipping transcription");
+          showSnackbar("Recording too short", "error");
+          floatingBtn.classList.remove("transcribing");
+          return;
+        }
+
         const arrayBuffer = await audioBlob.arrayBuffer();
         const uint8Array = new Uint8Array(arrayBuffer);
 

@@ -473,6 +473,17 @@ async function transcribeAudio(audioBuffer) {
       return;
     }
 
+    // Debug: Log audio buffer info
+    console.log("=== Audio Debug Info ===");
+    console.log("Audio buffer size:", audioBuffer.length, "bytes");
+    console.log("First 12 bytes (hex):", audioBuffer.slice(0, 12).toString('hex'));
+
+    // Check WebM signature (1A 45 DF A3 = EBML header)
+    const isWebM = audioBuffer[0] === 0x1A && audioBuffer[1] === 0x45 && audioBuffer[2] === 0xDF && audioBuffer[3] === 0xA3;
+    console.log("Has valid WebM signature:", isWebM);
+    console.log("Content-Type being sent:", "audio/webm");
+    console.log("========================");
+
     // Save buffer to temp file
     const tempPath = path.join(app.getPath("temp"), `recording-${Date.now()}.webm`);
     fs.writeFileSync(tempPath, audioBuffer);
@@ -654,8 +665,15 @@ ipcMain.handle("get-api-key-status", () => {
   return { hasApiKey: !!GROQ_API_KEY };
 });
 
-ipcMain.handle("save-api-key", (event, apiKey) => {
+ipcMain.handle("save-api-key", async (event, apiKey) => {
   const success = saveApiKey(apiKey);
+
+  // After API key is saved, trigger accessibility flow if not already done
+  if (success && !accessibilityDialogShown) {
+    await ensureAccessibilityAndStart();
+    startAccessibilityPoller();
+  }
+
   return { success };
 });
 
@@ -723,12 +741,12 @@ app.whenReady().then(async() => {
   createFloatingButton();
   app.commandLine.appendSwitch('disable-restore-session-state');
 
-  // Ensure accessibility before starting uiohook
-  await ensureAccessibilityAndStart();
-
-  // Start background poller to detect if permission is granted later
-  // (e.g., user enables it in System Settings without relaunching)
-  startAccessibilityPoller();
+  // Only start accessibility flow if API key is already configured
+  // Otherwise, wait for the API key to be saved first
+  if (GROQ_API_KEY) {
+    await ensureAccessibilityAndStart();
+    startAccessibilityPoller();
+  }
 
   app.on("activate", () => {
     if (mainWindow) {
