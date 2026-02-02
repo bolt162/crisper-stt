@@ -4,6 +4,9 @@ const settingsBtn = document.getElementById("settingsBtn");
 const snackbar = document.getElementById("snackbar");
 
 let isRecording = false;
+let isInitializing = false;
+let lastRecordingActionTime = 0;
+const RECORDING_DEBOUNCE_MS = 500;
 let snackbarTimeout = null;
 
 // Show snackbar with message and type (success/error)
@@ -128,10 +131,64 @@ window.floatingAPI.onTranscriptionResult?.((_result) => {
 // Helper to log to terminal via main process
 const log = (...args) => window.floatingAPI.log(...args);
 
-async function startRecording() {
-  if (isRecording) return;
+// Force cleanup any existing recording resources
+function forceCleanup() {
+  log("Force cleanup of existing resources...");
 
-  // Set flag immediately to prevent duplicate calls
+  if (mediaRecorder && mediaRecorder.state !== "inactive") {
+    try {
+      mediaRecorder.stop();
+    } catch (e) {
+      log("MediaRecorder stop error during cleanup:", e.message);
+    }
+  }
+  mediaRecorder = null;
+
+  if (micStream) {
+    micStream.getTracks().forEach((track) => track.stop());
+    micStream = null;
+  }
+  if (systemStream) {
+    systemStream.getTracks().forEach((track) => track.stop());
+    systemStream = null;
+  }
+  if (audioContext) {
+    try {
+      audioContext.close();
+    } catch (e) {
+      log("AudioContext close error during cleanup:", e.message);
+    }
+    audioContext = null;
+  }
+
+  audioChunks = [];
+  isRecording = false;
+  isInitializing = false;
+  floatingBtn.classList.remove("recording");
+  floatingBtn.classList.remove("transcribing");
+  container.classList.remove("recording");
+}
+
+async function startRecording() {
+  // Debounce check - ignore if action was triggered too recently
+  const now = Date.now();
+  if (now - lastRecordingActionTime < RECORDING_DEBOUNCE_MS) {
+    log("Debounce: ignoring rapid recording action");
+    return;
+  }
+  lastRecordingActionTime = now;
+
+  // Prevent concurrent calls during initialization
+  if (isRecording || isInitializing) {
+    log("Already recording or initializing, ignoring startRecording call");
+    return;
+  }
+
+  // Force cleanup any zombie resources from previous recordings
+  forceCleanup();
+
+  // Set flags immediately to prevent duplicate calls
+  isInitializing = true;
   isRecording = true;
   floatingBtn.classList.add("recording");
   container.classList.add("recording");
@@ -298,12 +355,18 @@ async function startRecording() {
 
     mediaRecorder.start(100);
 
+    // Initialization complete
+    isInitializing = false;
+    log("Recording started successfully");
+
     // Notify main process
     window.floatingAPI.startRecording();
   } catch (error) {
     console.error("Failed to start recording:", error);
     isRecording = false;
+    isInitializing = false;
     floatingBtn.classList.remove("recording");
+    container.classList.remove("recording");
     // Clean up any streams
     if (micStream) {
       micStream.getTracks().forEach((track) => track.stop());
@@ -317,14 +380,43 @@ async function startRecording() {
 }
 
 function stopRecording() {
-  if (!isRecording || !mediaRecorder) return;
+  // Debounce check
+  const now = Date.now();
+  if (now - lastRecordingActionTime < RECORDING_DEBOUNCE_MS) {
+    log("Debounce: ignoring rapid stop action");
+    return;
+  }
+  lastRecordingActionTime = now;
+
+  // Don't stop if we're still initializing
+  if (isInitializing) {
+    log("Still initializing, ignoring stopRecording call");
+    return;
+  }
+
+  if (!isRecording) {
+    log("Not recording, ignoring stopRecording call");
+    return;
+  }
+
+  if (!mediaRecorder) {
+    log("No mediaRecorder, cleaning up state");
+    isRecording = false;
+    floatingBtn.classList.remove("recording");
+    container.classList.remove("recording");
+    return;
+  }
 
   isRecording = false;
   floatingBtn.classList.remove("recording");
   container.classList.remove("recording");
 
-  if (mediaRecorder.state !== "inactive") {
+  // Only stop if MediaRecorder is actually recording
+  if (mediaRecorder.state === "recording") {
+    log("Stopping MediaRecorder (state was: recording)");
     mediaRecorder.stop();
+  } else {
+    log("MediaRecorder state is:", mediaRecorder.state, "- not calling stop()");
   }
 
   // Notify main process
