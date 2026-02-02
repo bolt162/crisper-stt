@@ -20,13 +20,13 @@ A lightweight macOS app for instant voice-to-text transcription using Groq's Whi
 <img width="493" height="528" alt="Screenshot 2026-01-30 at 11 59 04 AM" src="https://github.com/user-attachments/assets/79089666-51c6-4dfb-82e3-7ae8404b066f" />
 
 
-Demo link : ![Click here](https://drive.google.com/file/d/1jWz14aWJaCT9kiqyaLNrnStnCm9RfdET/view?usp=drive_link)
+Demo link : [Click here](https://drive.google.com/file/d/1jWz14aWJaCT9kiqyaLNrnStnCm9RfdET/view?usp=drive_link)
 
 ## Installation
 
 ### Download (Recommended)
 
-Download the latest release from the [Releases page](https://github.com/bolt162/crisper/releases/latest).
+Download the latest release from the [Releases page](https://github.com/bolt162/crisper-stt/releases/tag/v1.0.0).
 
 1. Download `Crisper-1.0.0-arm64.dmg`
 2. Open the DMG and drag Crisper to your Applications folder
